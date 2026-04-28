@@ -23,10 +23,11 @@ app.use((req, _res, next) => {
 })
 
 // Initialize DB tables once per cold start, then gate all requests
-const dbReady = initDb().catch(err => { console.error('DB init failed:', err); process.exit(1) })
+const dbReady = initDb().catch(err => err) // capture error, don't crash
 app.use(async (_req, res, next) => {
-  try { await dbReady; next() }
-  catch { res.status(500).json({ error: 'Database not available.' }) }
+  const err = await dbReady
+  if (err instanceof Error) return res.status(500).json({ error: 'Database not available.', details: err.message })
+  next()
 })
 
 app.get('/', (_req, res) => res.json({ status: 'ok', message: 'Meeting Intelligence API' }))
@@ -496,10 +497,19 @@ app.delete('/ai-sessions/:id', requireAuth, requireTeam, async (req, res) => {
   res.json({ ok: true })
 })
 
+// Global error handler — ensures every crash returns JSON, never an empty body
+app.use((err, _req, res, _next) => {
+  console.error(err)
+  res.status(500).json({ error: err.message || 'Internal server error' })
+})
+
 // ─── Local dev server ────────────────────────────────────────────────────────
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 5001
-  dbReady.then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`))).catch(console.error)
+  dbReady.then(err => {
+    if (err instanceof Error) { console.error('DB init failed:', err.message); process.exit(1) }
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+  })
 }
 
 export default app
