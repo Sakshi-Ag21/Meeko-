@@ -9,3 +9,5 @@ dist
 *.db
 *.db-shm
 *.db-wal
+.env echo .env.local
+.env echo .env.local
