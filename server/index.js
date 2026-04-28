@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import db from './db.js'
+import pool, { initDb } from './db.js'
 import { signToken, requireAuth, requireTeam } from './auth.js'
 
 dotenv.config()
@@ -15,9 +15,23 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
+// Strip /api prefix when running as a Vercel serverless function
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/')) req.url = req.url.slice(4)
+  else if (req.url === '/api') req.url = '/'
+  next()
+})
+
+// Initialize DB tables once per cold start, then gate all requests
+const dbReady = initDb().catch(err => { console.error('DB init failed:', err); process.exit(1) })
+app.use(async (_req, res, next) => {
+  try { await dbReady; next() }
+  catch { res.status(500).json({ error: 'Database not available.' }) }
+})
+
 app.get('/', (_req, res) => res.json({ status: 'ok', message: 'Meeting Intelligence API' }))
 
-// ─── Transcript helpers ────────────────────────────────────────────────────────
+// ─── Transcript helpers ─────────────────────────────────────────────────────
 
 const TIMESTAMP_RE = /^\d{1,2}:\d{2}(:\d{2})?(\s*(AM|PM))?$/i
 const isTimestamp = line => TIMESTAMP_RE.test(line.trim())
@@ -81,21 +95,22 @@ ${attributionRule}
 Transcript:\n${transcript}`
 }
 
-// ─── Auth routes ───────────────────────────────────────────────────────────────
+// ─── Auth routes ────────────────────────────────────────────────────────────
 
 app.post('/auth/register', async (req, res) => {
   const { name, email, password } = req.body
   if (!name?.trim() || !email?.trim() || !password) return res.status(400).json({ error: 'name, email and password are required.' })
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' })
 
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase().trim())
+  const existing = (await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()])).rows[0]
   if (existing) return res.status(409).json({ error: 'An account with this email already exists.' })
 
   const id = randomUUID()
   const password_hash = await bcrypt.hash(password, 10)
-  db.prepare('INSERT INTO users (id, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, name.trim(), email.toLowerCase().trim(), password_hash, new Date().toISOString())
-
+  await pool.query(
+    'INSERT INTO users (id, name, email, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)',
+    [id, name.trim(), email.toLowerCase().trim(), password_hash, new Date().toISOString()]
+  )
   const user = { id, name: name.trim(), email: email.toLowerCase().trim() }
   res.json({ token: signToken(user), user })
 })
@@ -104,7 +119,7 @@ app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required.' })
 
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim())
+  const user = (await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase().trim()])).rows[0]
   if (!user) return res.status(401).json({ error: 'No account found with this email.' })
 
   const valid = await bcrypt.compare(password, user.password_hash)
@@ -114,23 +129,22 @@ app.post('/auth/login', async (req, res) => {
   res.json({ token: signToken(payload), user: payload })
 })
 
-app.get('/auth/me', requireAuth, (req, res) => {
-  const user = db.prepare('SELECT id, name, email, created_at FROM users WHERE id = ?').get(req.user.id)
+app.get('/auth/me', requireAuth, async (req, res) => {
+  const user = (await pool.query('SELECT id, name, email, created_at FROM users WHERE id = $1', [req.user.id])).rows[0]
   if (!user) return res.status(404).json({ error: 'User not found.' })
 
-  const teams = db.prepare(`
+  const teams = (await pool.query(`
     SELECT t.id, t.name, t.invite_token, tm.role, tm.joined_at
     FROM teams t JOIN team_members tm ON tm.team_id = t.id
-    WHERE tm.user_id = ?
-    ORDER BY tm.joined_at ASC
-  `).all(req.user.id)
+    WHERE tm.user_id = $1 ORDER BY tm.joined_at ASC
+  `, [req.user.id])).rows
 
   res.json({ user, teams })
 })
 
-// ─── Team routes ───────────────────────────────────────────────────────────────
+// ─── Team routes ────────────────────────────────────────────────────────────
 
-app.post('/teams', requireAuth, (req, res) => {
+app.post('/teams', requireAuth, async (req, res) => {
   const { name } = req.body
   if (!name?.trim()) return res.status(400).json({ error: 'Team name is required.' })
 
@@ -138,94 +152,78 @@ app.post('/teams', requireAuth, (req, res) => {
   const invite_token = randomUUID()
   const now = new Date().toISOString()
 
-  db.prepare('INSERT INTO teams (id, name, invite_token, created_at) VALUES (?, ?, ?, ?)').run(id, name.trim(), invite_token, now)
-  db.prepare('INSERT INTO team_members (user_id, team_id, role, joined_at) VALUES (?, ?, ?, ?)').run(req.user.id, id, 'admin', now)
+  await pool.query('INSERT INTO teams (id, name, invite_token, created_at) VALUES ($1, $2, $3, $4)', [id, name.trim(), invite_token, now])
+  await pool.query('INSERT INTO team_members (user_id, team_id, role, joined_at) VALUES ($1, $2, $3, $4)', [req.user.id, id, 'admin', now])
 
   res.json({ id, name: name.trim(), invite_token, role: 'admin' })
 })
 
-// Get team info + members (must be a member)
-app.get('/teams/:id', requireAuth, (req, res) => {
-  const member = db.prepare('SELECT role FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, req.params.id)
+app.get('/teams/:id', requireAuth, async (req, res) => {
+  const member = (await pool.query('SELECT role FROM team_members WHERE user_id = $1 AND team_id = $2', [req.user.id, req.params.id])).rows[0]
   if (!member) return res.status(403).json({ error: 'Not a member.' })
 
-  const team = db.prepare('SELECT id, name, invite_token, created_at FROM teams WHERE id = ?').get(req.params.id)
+  const team = (await pool.query('SELECT id, name, invite_token, created_at FROM teams WHERE id = $1', [req.params.id])).rows[0]
   if (!team) return res.status(404).json({ error: 'Team not found.' })
 
-  const members = db.prepare(`
+  const members = (await pool.query(`
     SELECT u.id, u.name, u.email, tm.role, tm.joined_at
     FROM team_members tm JOIN users u ON u.id = tm.user_id
-    WHERE tm.team_id = ? ORDER BY tm.joined_at ASC
-  `).all(req.params.id)
+    WHERE tm.team_id = $1 ORDER BY tm.joined_at ASC
+  `, [req.params.id])).rows
 
   res.json({ ...team, members, my_role: member.role })
 })
 
-// Join via invite token
-app.post('/teams/join/:token', requireAuth, (req, res) => {
-  const team = db.prepare('SELECT * FROM teams WHERE invite_token = ?').get(req.params.token)
+app.post('/teams/join/:token', requireAuth, async (req, res) => {
+  const team = (await pool.query('SELECT * FROM teams WHERE invite_token = $1', [req.params.token])).rows[0]
   if (!team) return res.status(404).json({ error: 'Invalid or expired invite link.' })
 
-  const already = db.prepare('SELECT id FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, team.id)
+  const already = (await pool.query('SELECT id FROM team_members WHERE user_id = $1 AND team_id = $2', [req.user.id, team.id])).rows[0]
   if (already) return res.status(200).json({ id: team.id, name: team.name, already: true })
 
-  db.prepare('INSERT INTO team_members (user_id, team_id, role, joined_at) VALUES (?, ?, ?, ?)').run(req.user.id, team.id, 'member', new Date().toISOString())
+  await pool.query('INSERT INTO team_members (user_id, team_id, role, joined_at) VALUES ($1, $2, $3, $4)', [req.user.id, team.id, 'member', new Date().toISOString()])
   res.json({ id: team.id, name: team.name, role: 'member' })
 })
 
-// Regenerate invite token (admin only)
-app.post('/teams/:id/invite/regenerate', requireAuth, (req, res) => {
-  const member = db.prepare('SELECT role FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, req.params.id)
+app.post('/teams/:id/invite/regenerate', requireAuth, async (req, res) => {
+  const member = (await pool.query('SELECT role FROM team_members WHERE user_id = $1 AND team_id = $2', [req.user.id, req.params.id])).rows[0]
   if (!member || member.role !== 'admin') return res.status(403).json({ error: 'Admin only.' })
 
   const invite_token = randomUUID()
-  db.prepare('UPDATE teams SET invite_token = ? WHERE id = ?').run(invite_token, req.params.id)
+  await pool.query('UPDATE teams SET invite_token = $1 WHERE id = $2', [invite_token, req.params.id])
   res.json({ invite_token })
 })
 
-// Update member role (admin only)
-app.patch('/teams/:id/members/:userId', requireAuth, (req, res) => {
-  const me = db.prepare('SELECT role FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, req.params.id)
+app.patch('/teams/:id/members/:userId', requireAuth, async (req, res) => {
+  const me = (await pool.query('SELECT role FROM team_members WHERE user_id = $1 AND team_id = $2', [req.user.id, req.params.id])).rows[0]
   if (!me || me.role !== 'admin') return res.status(403).json({ error: 'Admin only.' })
   if (req.params.userId === req.user.id) return res.status(400).json({ error: 'Cannot change your own role.' })
 
   const { role } = req.body
   if (!['admin', 'member'].includes(role)) return res.status(400).json({ error: 'Role must be admin or member.' })
 
-  const { changes } = db.prepare('UPDATE team_members SET role = ? WHERE user_id = ? AND team_id = ?').run(role, req.params.userId, req.params.id)
-  if (!changes) return res.status(404).json({ error: 'Member not found.' })
+  const result = await pool.query('UPDATE team_members SET role = $1 WHERE user_id = $2 AND team_id = $3', [role, req.params.userId, req.params.id])
+  if (!result.rowCount) return res.status(404).json({ error: 'Member not found.' })
   res.json({ ok: true })
 })
 
-// Remove member (admin only, or self-leave)
-app.delete('/teams/:id/members/:userId', requireAuth, (req, res) => {
-  const me = db.prepare('SELECT role FROM team_members WHERE user_id = ? AND team_id = ?').get(req.user.id, req.params.id)
+app.delete('/teams/:id/members/:userId', requireAuth, async (req, res) => {
+  const me = (await pool.query('SELECT role FROM team_members WHERE user_id = $1 AND team_id = $2', [req.user.id, req.params.id])).rows[0]
   if (!me) return res.status(403).json({ error: 'Not a member.' })
 
   const isSelf = req.params.userId === req.user.id
   if (!isSelf && me.role !== 'admin') return res.status(403).json({ error: 'Admin only.' })
 
-  // Prevent last admin from leaving
   if (isSelf && me.role === 'admin') {
-    const adminCount = db.prepare("SELECT COUNT(*) as n FROM team_members WHERE team_id = ? AND role = 'admin'").get(req.params.id).n
-    if (adminCount <= 1) return res.status(400).json({ error: 'Assign another admin before leaving.' })
+    const { rows } = await pool.query("SELECT COUNT(*)::int as n FROM team_members WHERE team_id = $1 AND role = 'admin'", [req.params.id])
+    if (rows[0].n <= 1) return res.status(400).json({ error: 'Assign another admin before leaving.' })
   }
 
-  db.prepare('DELETE FROM team_members WHERE user_id = ? AND team_id = ?').run(req.params.userId, req.params.id)
+  await pool.query('DELETE FROM team_members WHERE user_id = $1 AND team_id = $2', [req.params.userId, req.params.id])
   res.json({ ok: true })
 })
 
-// ─── Data routes (all scoped to team) ─────────────────────────────────────────
-
-const insertMeeting = db.prepare(`
-  INSERT INTO meetings (id, team_id, title, date, transcript, summary, decisions, action_items, pain_points, person_wise, speakers, created_at)
-  VALUES (@id, @team_id, @title, @date, @transcript, @summary, @decisions, @action_items, @pain_points, @person_wise, @speakers, @created_at)
-`)
-const insertParticipant = db.prepare('INSERT INTO participants (meeting_id, name) VALUES (?, ?)')
-const saveMeeting = db.transaction((row, speakers) => {
-  insertMeeting.run(row)
-  for (const name of speakers) insertParticipant.run(row.id, name)
-})
+// ─── Data routes (all scoped to team) ───────────────────────────────────────
 
 app.post('/analyze-transcript', requireAuth, requireTeam, async (req, res) => {
   const { transcript, title, date } = req.body
@@ -256,112 +254,123 @@ app.post('/analyze-transcript', requireAuth, requireTeam, async (req, res) => {
   parsed.person_wise = pw
 
   const id = randomUUID()
-  saveMeeting({
-    id, team_id: req.teamId,
-    title: title?.trim() || 'Untitled Meeting',
-    date: date || new Date().toISOString().slice(0, 10),
-    transcript: normalized,
-    summary: JSON.stringify(parsed.summary ?? []),
-    decisions: JSON.stringify(parsed.decisions ?? []),
-    action_items: JSON.stringify(parsed.action_items ?? []),
-    pain_points: JSON.stringify(parsed.pain_points ?? []),
-    person_wise: JSON.stringify(parsed.person_wise ?? {}),
-    speakers: JSON.stringify(speakers),
-    created_at: new Date().toISOString(),
-  }, speakers)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(
+      'INSERT INTO meetings (id, team_id, title, date, transcript, summary, decisions, action_items, pain_points, person_wise, speakers, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+      [id, req.teamId, title?.trim() || 'Untitled Meeting', date || new Date().toISOString().slice(0, 10),
+        normalized, JSON.stringify(parsed.summary ?? []), JSON.stringify(parsed.decisions ?? []),
+        JSON.stringify(parsed.action_items ?? []), JSON.stringify(parsed.pain_points ?? []),
+        JSON.stringify(parsed.person_wise ?? {}), JSON.stringify(speakers), new Date().toISOString()]
+    )
+    for (const name of speakers) {
+      await client.query('INSERT INTO participants (meeting_id, name) VALUES ($1, $2)', [id, name])
+    }
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 
   return res.json({ id, summary: parsed.summary ?? [], decisions: parsed.decisions ?? [], action_items: parsed.action_items ?? [], pain_points: parsed.pain_points ?? [], person_wise: parsed.person_wise ?? {}, speakers })
 })
 
-app.get('/stats', requireAuth, requireTeam, (_req, res) => {
-  const tid = _req.teamId
-  const totalMeetings = db.prepare('SELECT COUNT(*) as n FROM meetings WHERE team_id = ?').get(tid).n
-  const uniqueParticipants = db.prepare('SELECT COUNT(DISTINCT p.name) as n FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = ?').get(tid).n
-  const ym = new Date().toISOString().slice(0, 7)
-  const thisMonth = db.prepare("SELECT COUNT(*) as n FROM meetings WHERE team_id = ? AND date LIKE ?").get(tid, `${ym}%`).n
-  res.json({ totalMeetings, uniqueParticipants, thisMonth })
+app.get('/stats', requireAuth, requireTeam, async (req, res) => {
+  const tid = req.teamId
+  const [{ rows: [tm] }, { rows: [up] }, { rows: [mm] }] = await Promise.all([
+    pool.query('SELECT COUNT(*)::int as n FROM meetings WHERE team_id = $1', [tid]),
+    pool.query('SELECT COUNT(DISTINCT p.name)::int as n FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1', [tid]),
+    pool.query("SELECT COUNT(*)::int as n FROM meetings WHERE team_id = $1 AND date LIKE $2", [tid, `${new Date().toISOString().slice(0, 7)}%`]),
+  ])
+  res.json({ totalMeetings: tm.n, uniqueParticipants: up.n, thisMonth: mm.n })
 })
 
-app.get('/meetings', requireAuth, requireTeam, (req, res) => {
+app.get('/meetings', requireAuth, requireTeam, async (req, res) => {
   const { q, filter } = req.query
   const tid = req.teamId
   const cols = 'id, title, date, summary, speakers, created_at'
-  const base = `SELECT ${cols} FROM meetings WHERE team_id = ?`
+  const base = `SELECT ${cols} FROM meetings WHERE team_id = $1`
 
   let rows
   if (!q?.trim() || !filter || filter === 'all') {
-    rows = db.prepare(`${base} ORDER BY date DESC, created_at DESC LIMIT 200`).all(tid)
+    rows = (await pool.query(`${base} ORDER BY date DESC, created_at DESC LIMIT 200`, [tid])).rows
   } else if (filter === 'participant') {
-    rows = db.prepare(`
-      SELECT DISTINCT m.${cols.split(', ').join(', m.')}
+    rows = (await pool.query(`
+      SELECT DISTINCT m.id, m.title, m.date, m.summary, m.speakers, m.created_at
       FROM meetings m JOIN participants p ON p.meeting_id = m.id
-      WHERE m.team_id = ? AND p.name LIKE ?
+      WHERE m.team_id = $1 AND p.name ILIKE $2
       ORDER BY m.date DESC, m.created_at DESC LIMIT 200
-    `).all(tid, `%${q}%`)
+    `, [tid, `%${q}%`])).rows
   } else if (filter === 'date') {
-    rows = db.prepare(`${base} AND date LIKE ? ORDER BY date DESC LIMIT 200`).all(tid, `${q}%`)
+    rows = (await pool.query(`${base} AND date LIKE $2 ORDER BY date DESC LIMIT 200`, [tid, `${q}%`])).rows
   } else {
-    rows = db.prepare(`${base} AND title LIKE ? ORDER BY date DESC LIMIT 200`).all(tid, `%${q}%`)
+    rows = (await pool.query(`${base} AND title ILIKE $2 ORDER BY date DESC LIMIT 200`, [tid, `%${q}%`])).rows
   }
 
   res.json(rows.map(r => ({ ...r, summary: JSON.parse(r.summary), speakers: JSON.parse(r.speakers) })))
 })
 
-app.get('/meetings/:id', requireAuth, requireTeam, (req, res) => {
-  const m = db.prepare('SELECT * FROM meetings WHERE id = ? AND team_id = ?').get(req.params.id, req.teamId)
+app.get('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
+  const m = (await pool.query('SELECT * FROM meetings WHERE id = $1 AND team_id = $2', [req.params.id, req.teamId])).rows[0]
   if (!m) return res.status(404).json({ error: 'Not found' })
   res.json({ ...m, summary: JSON.parse(m.summary), decisions: JSON.parse(m.decisions), action_items: JSON.parse(m.action_items), pain_points: JSON.parse(m.pain_points || '[]'), person_wise: JSON.parse(m.person_wise), speakers: JSON.parse(m.speakers) })
 })
 
-app.patch('/meetings/:id', requireAuth, requireTeam, (req, res) => {
+app.patch('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
   const { person_wise, summary, decisions, action_items, pain_points } = req.body
-  const setClauses = []; const values = []
-  if (person_wise && typeof person_wise === 'object') { setClauses.push('person_wise = ?'); values.push(JSON.stringify(person_wise)) }
-  if (Array.isArray(summary)) { setClauses.push('summary = ?'); values.push(JSON.stringify(summary)) }
-  if (Array.isArray(decisions)) { setClauses.push('decisions = ?'); values.push(JSON.stringify(decisions)) }
-  if (Array.isArray(action_items)) { setClauses.push('action_items = ?'); values.push(JSON.stringify(action_items)) }
-  if (Array.isArray(pain_points)) { setClauses.push('pain_points = ?'); values.push(JSON.stringify(pain_points)) }
-  if (setClauses.length === 0) return res.status(400).json({ error: 'Nothing to update' })
-  values.push(req.params.id, req.teamId)
-  const { changes } = db.prepare(`UPDATE meetings SET ${setClauses.join(', ')} WHERE id = ? AND team_id = ?`).run(...values)
-  if (!changes) return res.status(404).json({ error: 'Not found' })
+  const sets = []; const vals = []; let p = 1
+  if (person_wise && typeof person_wise === 'object') { sets.push(`person_wise = $${p++}`); vals.push(JSON.stringify(person_wise)) }
+  if (Array.isArray(summary)) { sets.push(`summary = $${p++}`); vals.push(JSON.stringify(summary)) }
+  if (Array.isArray(decisions)) { sets.push(`decisions = $${p++}`); vals.push(JSON.stringify(decisions)) }
+  if (Array.isArray(action_items)) { sets.push(`action_items = $${p++}`); vals.push(JSON.stringify(action_items)) }
+  if (Array.isArray(pain_points)) { sets.push(`pain_points = $${p++}`); vals.push(JSON.stringify(pain_points)) }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' })
+  vals.push(req.params.id, req.teamId)
+  const result = await pool.query(`UPDATE meetings SET ${sets.join(', ')} WHERE id = $${p} AND team_id = $${p + 1}`, vals)
+  if (!result.rowCount) return res.status(404).json({ error: 'Not found' })
   res.json({ ok: true })
 })
 
-app.delete('/meetings/:id', requireAuth, requireTeam, (req, res) => {
-  const { changes } = db.prepare('DELETE FROM meetings WHERE id = ? AND team_id = ?').run(req.params.id, req.teamId)
-  if (!changes) return res.status(404).json({ error: 'Not found' })
+app.delete('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
+  const result = await pool.query('DELETE FROM meetings WHERE id = $1 AND team_id = $2', [req.params.id, req.teamId])
+  if (!result.rowCount) return res.status(404).json({ error: 'Not found' })
   res.json({ ok: true })
 })
 
-app.get('/analytics', requireAuth, requireTeam, (req, res) => {
+app.get('/analytics', requireAuth, requireTeam, async (req, res) => {
   const tid = req.teamId
-  const byDate = db.prepare('SELECT date, COUNT(*) as count FROM meetings WHERE team_id = ? GROUP BY date ORDER BY date ASC').all(tid)
-  const byParticipant = db.prepare('SELECT p.name, COUNT(*) as meetings FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = ? GROUP BY p.name ORDER BY meetings DESC LIMIT 20').all(tid)
-  const rows = db.prepare('SELECT person_wise FROM meetings WHERE team_id = ?').all(tid)
+  const [byDateRes, byParticipantRes, pwRes] = await Promise.all([
+    pool.query('SELECT date, COUNT(*)::int as count FROM meetings WHERE team_id = $1 GROUP BY date ORDER BY date ASC', [tid]),
+    pool.query('SELECT p.name, COUNT(*)::int as meetings FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 GROUP BY p.name ORDER BY meetings DESC LIMIT 20', [tid]),
+    pool.query('SELECT person_wise FROM meetings WHERE team_id = $1', [tid]),
+  ])
   const actionMap = {}
-  for (const row of rows) {
+  for (const row of pwRes.rows) {
     for (const [name, items] of Object.entries(JSON.parse(row.person_wise))) {
       if (name === 'Unassigned') continue
       actionMap[name] = (actionMap[name] ?? 0) + (items?.length ?? 0)
     }
   }
   const byActions = Object.entries(actionMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 20)
-  res.json({ byDate, byParticipant, byActions })
+  res.json({ byDate: byDateRes.rows, byParticipant: byParticipantRes.rows, byActions })
 })
 
 app.post('/team-summary', requireAuth, requireTeam, async (req, res) => {
   const { meeting_ids, date_from, date_to } = req.body ?? {}
   const tid = req.teamId
+  const cols = 'id, title, date, summary, decisions, action_items, person_wise'
   let meetings
 
   if (Array.isArray(meeting_ids) && meeting_ids.length > 0) {
-    const ph = meeting_ids.map(() => '?').join(',')
-    meetings = db.prepare(`SELECT id, title, date, summary, decisions, action_items, person_wise FROM meetings WHERE team_id = ? AND id IN (${ph}) ORDER BY date ASC`).all(tid, ...meeting_ids)
+    const ph = meeting_ids.map((_, i) => `$${i + 2}`).join(',')
+    meetings = (await pool.query(`SELECT ${cols} FROM meetings WHERE team_id = $1 AND id IN (${ph}) ORDER BY date ASC`, [tid, ...meeting_ids])).rows
   } else if (date_from || date_to) {
-    meetings = db.prepare('SELECT id, title, date, summary, decisions, action_items, person_wise FROM meetings WHERE team_id = ? AND date BETWEEN ? AND ? ORDER BY date ASC').all(tid, date_from || '0000-01-01', date_to || '9999-12-31')
+    meetings = (await pool.query(`SELECT ${cols} FROM meetings WHERE team_id = $1 AND date BETWEEN $2 AND $3 ORDER BY date ASC`, [tid, date_from || '0000-01-01', date_to || '9999-12-31'])).rows
   } else {
-    meetings = db.prepare('SELECT id, title, date, summary, decisions, action_items, person_wise FROM meetings WHERE team_id = ? ORDER BY date ASC').all(tid)
+    meetings = (await pool.query(`SELECT ${cols} FROM meetings WHERE team_id = $1 ORDER BY date ASC`, [tid])).rows
   }
 
   if (meetings.length === 0) return res.status(400).json({ error: 'No meetings found for the selected criteria.' })
@@ -397,10 +406,10 @@ app.post('/ask-ai', requireAuth, requireTeam, async (req, res) => {
 
   let rows
   if (Array.isArray(meeting_ids) && meeting_ids.length > 0) {
-    const ph = meeting_ids.map(() => '?').join(',')
-    rows = db.prepare(`SELECT * FROM meetings WHERE team_id = ? AND id IN (${ph})`).all(tid, ...meeting_ids)
+    const ph = meeting_ids.map((_, i) => `$${i + 2}`).join(',')
+    rows = (await pool.query(`SELECT * FROM meetings WHERE team_id = $1 AND id IN (${ph})`, [tid, ...meeting_ids])).rows
   } else {
-    rows = db.prepare('SELECT * FROM meetings WHERE team_id = ? ORDER BY date DESC').all(tid)
+    rows = (await pool.query('SELECT * FROM meetings WHERE team_id = $1 ORDER BY date DESC', [tid])).rows
   }
 
   if (rows.length === 0) return res.status(400).json({ error: 'No meetings selected.' })
@@ -441,44 +450,56 @@ Respond as if you're mid-conversation — no "Certainly!" or "Great question!", 
   res.json({ answer, meeting_count: rows.length })
 })
 
-// ─── AI Sessions ──────────────────────────────────────────────────────────────
+// ─── AI Sessions ─────────────────────────────────────────────────────────────
 
-app.get('/ai-sessions', requireAuth, requireTeam, (req, res) => {
-  const sessions = db.prepare('SELECT id, title, meeting_ids, created_at, updated_at, json_array_length(messages) as message_count FROM ai_sessions WHERE team_id = ? ORDER BY updated_at DESC').all(req.teamId)
-  res.json(sessions.map(s => ({ ...s, meeting_ids: JSON.parse(s.meeting_ids) })))
+app.get('/ai-sessions', requireAuth, requireTeam, async (req, res) => {
+  const sessions = (await pool.query(
+    'SELECT id, title, meeting_ids, created_at, updated_at, jsonb_array_length(messages::jsonb) as message_count FROM ai_sessions WHERE team_id = $1 ORDER BY updated_at DESC',
+    [req.teamId]
+  )).rows
+  res.json(sessions.map(s => ({ ...s, meeting_ids: JSON.parse(s.meeting_ids), message_count: parseInt(s.message_count ?? 0) })))
 })
 
-app.post('/ai-sessions', requireAuth, requireTeam, (req, res) => {
+app.post('/ai-sessions', requireAuth, requireTeam, async (req, res) => {
   const { title = 'New Chat', meeting_ids = [], messages = [] } = req.body
   const id = randomUUID(); const now = new Date().toISOString()
-  db.prepare('INSERT INTO ai_sessions (id, team_id, title, messages, meeting_ids, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.teamId, title, JSON.stringify(messages), JSON.stringify(meeting_ids), now, now)
+  await pool.query(
+    'INSERT INTO ai_sessions (id, team_id, title, messages, meeting_ids, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    [id, req.teamId, title, JSON.stringify(messages), JSON.stringify(meeting_ids), now, now]
+  )
   res.json({ id, title, messages, meeting_ids, created_at: now, updated_at: now })
 })
 
-app.get('/ai-sessions/:id', requireAuth, requireTeam, (req, res) => {
-  const s = db.prepare('SELECT * FROM ai_sessions WHERE id = ? AND team_id = ?').get(req.params.id, req.teamId)
+app.get('/ai-sessions/:id', requireAuth, requireTeam, async (req, res) => {
+  const s = (await pool.query('SELECT * FROM ai_sessions WHERE id = $1 AND team_id = $2', [req.params.id, req.teamId])).rows[0]
   if (!s) return res.status(404).json({ error: 'Not found' })
   res.json({ ...s, messages: JSON.parse(s.messages), meeting_ids: JSON.parse(s.meeting_ids) })
 })
 
-app.patch('/ai-sessions/:id', requireAuth, requireTeam, (req, res) => {
+app.patch('/ai-sessions/:id', requireAuth, requireTeam, async (req, res) => {
   const { messages, meeting_ids, title } = req.body
-  const setClauses = []; const values = []
-  if (Array.isArray(messages)) { setClauses.push('messages = ?'); values.push(JSON.stringify(messages)) }
-  if (Array.isArray(meeting_ids)) { setClauses.push('meeting_ids = ?'); values.push(JSON.stringify(meeting_ids)) }
-  if (typeof title === 'string') { setClauses.push('title = ?'); values.push(title) }
-  if (setClauses.length === 0) return res.status(400).json({ error: 'Nothing to update' })
-  setClauses.push('updated_at = ?'); values.push(new Date().toISOString(), req.params.id, req.teamId)
-  const { changes } = db.prepare(`UPDATE ai_sessions SET ${setClauses.join(', ')} WHERE id = ? AND team_id = ?`).run(...values)
-  if (!changes) return res.status(404).json({ error: 'Not found' })
+  const sets = []; const vals = []; let p = 1
+  if (Array.isArray(messages)) { sets.push(`messages = $${p++}`); vals.push(JSON.stringify(messages)) }
+  if (Array.isArray(meeting_ids)) { sets.push(`meeting_ids = $${p++}`); vals.push(JSON.stringify(meeting_ids)) }
+  if (typeof title === 'string') { sets.push(`title = $${p++}`); vals.push(title) }
+  if (!sets.length) return res.status(400).json({ error: 'Nothing to update' })
+  sets.push(`updated_at = $${p++}`); vals.push(new Date().toISOString())
+  vals.push(req.params.id, req.teamId)
+  const result = await pool.query(`UPDATE ai_sessions SET ${sets.join(', ')} WHERE id = $${p} AND team_id = $${p + 1}`, vals)
+  if (!result.rowCount) return res.status(404).json({ error: 'Not found' })
   res.json({ ok: true })
 })
 
-app.delete('/ai-sessions/:id', requireAuth, requireTeam, (req, res) => {
-  const { changes } = db.prepare('DELETE FROM ai_sessions WHERE id = ? AND team_id = ?').run(req.params.id, req.teamId)
-  if (!changes) return res.status(404).json({ error: 'Not found' })
+app.delete('/ai-sessions/:id', requireAuth, requireTeam, async (req, res) => {
+  const result = await pool.query('DELETE FROM ai_sessions WHERE id = $1 AND team_id = $2', [req.params.id, req.teamId])
+  if (!result.rowCount) return res.status(404).json({ error: 'Not found' })
   res.json({ ok: true })
 })
 
-const PORT = process.env.PORT || 5001
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
+// ─── Local dev server ────────────────────────────────────────────────────────
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5001
+  dbReady.then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`))).catch(console.error)
+}
+
+export default app
