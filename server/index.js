@@ -507,7 +507,7 @@ app.use((err, _req, res, _next) => {
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 5001
   dbReady.then(err => {
-    if (err instanceof Error) { console.error('DB init failed:', err.message); process.exit(1) }
+    if (err instanceof Error) { console.error('DB init failed:', err.message, err.code, err.detail); process.exit(1) }
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`))
   })
 }
