@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useTheme } from '../providers/ThemeProvider'
@@ -46,7 +47,7 @@ function JoinTeamModal({ onClose }) {
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Join a team</h2>
             <p className="text-xs text-slate-500 mt-0.5">Paste the invite link your admin shared</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors text-lg leading-none">✕</button>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-base font-bold">✕</button>
         </div>
         <form onSubmit={handleJoin} className="space-y-3">
           <input
@@ -128,8 +129,49 @@ function TeamSwitcher() {
         )}
       </div>
 
-      {showJoin && <JoinTeamModal onClose={() => setShowJoin(false)} />}
+      {showJoin && createPortal(<JoinTeamModal onClose={() => setShowJoin(false)} />, document.body)}
     </>
+  )
+}
+
+function HelpModal({ onClose }) {
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+          <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Help & Support</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors font-bold">✕</button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          {[
+            { q: 'How do I analyze a meeting?', a: 'Click "New Analysis" in the navbar, paste your transcript, add a title and date, then click Analyze.' },
+            { q: 'What transcript formats are supported?', a: 'Plain text, Fireflies exports, and any "Speaker: text" format. Upload .txt, .pdf, or .docx files, or paste directly.' },
+            { q: 'How do I invite someone to my team?', a: 'Go to Team Settings (via the team switcher) and copy your invite link. Share it with your teammate.' },
+            { q: 'How do I join a team?', a: 'Click your team name in the top-left, then "Join a team", and paste the invite link your admin shared.' },
+            { q: 'Can I edit the analysis after it\'s saved?', a: 'Yes — open any meeting and click the edit icon on Summary, Decisions, or Action Items to make changes.' },
+            { q: 'What is Ask AI?', a: 'Ask AI lets you have a conversation about your meetings — ask questions, get insights, or surface patterns across multiple meetings.' },
+            { q: 'What is Team Summary?', a: 'Team Summary generates a cross-meeting report — themes, decisions, and open actions across all or selected meetings.' },
+          ].map(({ q, a }) => (
+            <div key={q}>
+              <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">{q}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{a}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Still need help? Reach out at{' '}
+            <a href="mailto:sakshi@buyhatke.com" className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline">
+              sakshi@buyhatke.com
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>,
+    document.body
   )
 }
 
@@ -174,8 +216,10 @@ export function Navbar() {
   const { theme, toggleTheme } = useTheme()
   const { pathname } = useLocation()
   const { user } = useAuth()
+  const [showHelp, setShowHelp] = useState(false)
 
   return (
+    <>
     <header className="sticky top-0 z-20 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/70 dark:border-slate-800">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -201,6 +245,11 @@ export function Navbar() {
         </nav>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => setShowHelp(true)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-sm font-bold"
+            aria-label="Help">
+            Help
+          </button>
           <button onClick={toggleTheme}
             className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-sm"
             aria-label="Toggle theme">
@@ -210,5 +259,7 @@ export function Navbar() {
         </div>
       </div>
     </header>
+    {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+    </>
   )
 }

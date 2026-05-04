@@ -241,7 +241,7 @@ app.post('/analyze-transcript', requireAuth, requireTeam, async (req, res) => {
     const result = await model.generateContent(buildPrompt(normalized, speakers))
     rawText = result.response.text().trim()
   } catch (err) {
-    console.error('Gemini error:', err.message)
+    console.error('Gemini error:', err.message, err.status, err.errorDetails)
     return res.status(502).json({ error: 'Failed to call LLM', details: err.message })
   }
 
