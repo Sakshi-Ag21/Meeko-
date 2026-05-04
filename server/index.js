@@ -250,6 +250,13 @@ app.post('/analyze-transcript', requireAuth, requireTeam, async (req, res) => {
   try { parsed = JSON.parse(cleaned) }
   catch { parsed = { summary: [rawText], decisions: [], action_items: [], pain_points: [], person_wise: {} } }
 
+  // Normalize action_items: AI sometimes returns [{Name, action}] instead of ["string"]
+  if (Array.isArray(parsed.action_items)) {
+    parsed.action_items = parsed.action_items.map(item =>
+      typeof item === 'string' ? item : `${item.Name ?? item.name ?? ''}: ${item.action ?? item.Action ?? ''}`.replace(/^:\s*/, '').trim()
+    ).filter(Boolean)
+  }
+
   const pw = parsed.person_wise ?? {}
   for (const name of speakers) { if (!(name in pw)) pw[name] = [] }
   parsed.person_wise = pw
