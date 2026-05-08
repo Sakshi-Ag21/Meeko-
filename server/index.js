@@ -328,13 +328,16 @@ app.get('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
 })
 
 app.patch('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
-  const { person_wise, summary, decisions, action_items, pain_points } = req.body
+  const { person_wise, summary, decisions, action_items, pain_points, title, date, speakers } = req.body
   const sets = []; const vals = []; let p = 1
   if (person_wise && typeof person_wise === 'object') { sets.push(`person_wise = $${p++}`); vals.push(JSON.stringify(person_wise)) }
   if (Array.isArray(summary)) { sets.push(`summary = $${p++}`); vals.push(JSON.stringify(summary)) }
   if (Array.isArray(decisions)) { sets.push(`decisions = $${p++}`); vals.push(JSON.stringify(decisions)) }
   if (Array.isArray(action_items)) { sets.push(`action_items = $${p++}`); vals.push(JSON.stringify(action_items)) }
   if (Array.isArray(pain_points)) { sets.push(`pain_points = $${p++}`); vals.push(JSON.stringify(pain_points)) }
+  if (typeof title === 'string' && title.trim()) { sets.push(`title = $${p++}`); vals.push(title.trim()) }
+  if (typeof date === 'string' && date) { sets.push(`date = $${p++}`); vals.push(date) }
+  if (Array.isArray(speakers) && speakers.length) { sets.push(`speakers = $${p++}`); vals.push(JSON.stringify(speakers)) }
   if (!sets.length) return res.status(400).json({ error: 'Nothing to update' })
   vals.push(req.params.id, req.teamId)
   const result = await pool.query(`UPDATE meetings SET ${sets.join(', ')} WHERE id = $${p} AND team_id = $${p + 1}`, vals)
