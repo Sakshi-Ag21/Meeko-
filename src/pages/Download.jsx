@@ -1,12 +1,12 @@
 import { Navbar } from '../components/Navbar'
 
 const steps = [
-  { n: '1', title: 'Download the extension', desc: 'Click the button below to download the MeetIQ Recorder extension zip file.' },
+  { n: '1', title: 'Download the extension', desc: 'Click the button below to download the MeetIQ Recorder zip file.' },
   { n: '2', title: 'Unzip the file', desc: 'Extract the downloaded zip — you\'ll get a folder called "meetiq-recorder".' },
-  { n: '3', title: 'Open Chrome Extensions', desc: 'In Chrome, go to chrome://extensions in the address bar.' },
-  { n: '4', title: 'Enable Developer Mode', desc: 'Toggle on "Developer mode" in the top-right corner of the extensions page.' },
+  { n: '3', title: 'Open Manage Extensions', desc: 'Click the puzzle icon 🧩 in Chrome\'s toolbar → select "Manage Extensions". Or go to chrome://extensions in the address bar.' },
+  { n: '4', title: 'Enable Developer Mode', desc: 'Toggle on "Developer mode" in the top-right corner.' },
   { n: '5', title: 'Load the extension', desc: 'Click "Load unpacked" and select the "meetiq-recorder" folder you extracted.' },
-  { n: '6', title: 'Pin it to your toolbar', desc: 'Click the puzzle icon in Chrome toolbar → pin MeetIQ Recorder for easy access.' },
+  { n: '6', title: 'Pin it to your toolbar', desc: 'Click the puzzle icon 🧩 again → click the pin icon next to MeetIQ Recorder so it always stays visible.' },
 ]
 
 export function Download() {
