@@ -69,11 +69,11 @@ export function Download() {
           </div>
           <div className="px-6 py-5 space-y-3">
             {[
+              'Make sure you are logged in to MeetIQ in another tab.',
               'Join your Google Meet as usual.',
               'Click the MeetIQ Recorder icon in your Chrome toolbar.',
               'Enter your name (as it appears in Meet) and click Start Recording.',
-              'When the meeting ends, click Stop Recording.',
-              'Click "Send to MeetIQ" — the transcript opens in MeetIQ pre-filled and ready to analyze.',
+              'When the meeting ends, click Stop & Analyze — the transcript is automatically analyzed and saved to your team. You will be taken directly to the meeting summary.',
             ].map((step, i) => (
               <div key={i} className="flex gap-3 text-sm text-slate-600 dark:text-slate-400">
                 <span className="shrink-0 mt-1 w-1.5 h-1.5 rounded-full bg-indigo-400" />
