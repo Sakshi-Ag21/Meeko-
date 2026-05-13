@@ -12,6 +12,7 @@ const NAV = [
   { to: '/team-summary', label: 'Team Summary' },
   { to: '/ask-ai', label: 'Ask AI' },
   { to: '/analyze', label: 'New Analysis' },
+  { to: '/download', label: '🎙 Recorder' },
 ]
 
 function JoinTeamModal({ onClose }) {

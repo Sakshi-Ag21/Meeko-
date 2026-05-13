@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 280px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      padding: 16px;
+      color: white;
+    }
+    .header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.3px; }
+    .header p { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+
+    .body { padding: 14px; space-y: 10px; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: white;
+      border: 1px solid #e2e8f0;
+      margin-bottom: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #94a3b8;
+      flex-shrink: 0;
+    }
+    .dot.recording { background: #ef4444; animation: pulse 1s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+    }
+
+    .field { margin-bottom: 10px; }
+    label { display: block; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 4px; }
+    input {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      font-size: 13px;
+      background: white;
+      color: #1e293b;
+      outline: none;
+    }
+    input:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+
+    .btn {
+      width: 100%;
+      padding: 9px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: 8px;
+    }
+    .btn-record { background: #4f46e5; color: white; }
+    .btn-record:hover { background: #4338ca; }
+    .btn-stop { background: #ef4444; color: white; }
+    .btn-stop:hover { background: #dc2626; }
+    .btn-send { background: #10b981; color: white; }
+    .btn-send:hover { background: #059669; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .lines {
+      font-size: 11px;
+      color: #64748b;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+
+    .error {
+      font-size: 11px;
+      color: #ef4444;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      padding: 7px 10px;
+      margin-top: 8px;
+    }
+
+    .not-meet {
+      padding: 20px 16px;
+      text-align: center;
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+
+    .meetiq-url { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MeetIQ Recorder</h1>
+    <p>Speaker-wise transcription for Google Meet</p>
+  </div>
+
+  <div id="not-meet" class="not-meet" style="display:none">
+    <p>Open a <strong>Google Meet</strong> tab to start recording.</p>
+  </div>
+
+  <div id="main" class="body" style="display:none">
+    <div class="status-bar">
+      <div class="dot" id="dot"></div>
+      <span id="status-text">Ready to record</span>
+    </div>
+
+    <div class="field meetiq-url">
+      <label>MeetIQ URL</label>
+      <input id="meetiq-url" type="text" placeholder="https://meeko-henna.vercel.app" />
+    </div>
+
+    <div class="field">
+      <label>Your Name (as it appears in Meet)</label>
+      <input id="user-name" type="text" placeholder="e.g. Sakshi" />
+    </div>
+
+    <div id="lines" class="lines" style="display:none">0 lines captured</div>
+
+    <button id="btn-record" class="btn btn-record">🎙 Start Recording</button>
+    <button id="btn-stop" class="btn btn-stop" style="display:none">⏹ Stop & Analyze</button>
+
+    <div id="error" class="error" style="display:none"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -44,6 +44,7 @@ export function Home() {
   const [dragging, setDragging] = useState(false)
   const fileRef = useRef(null)
 
+
   const inputClass = "w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow"
 
   const readFile = async (file) => {
@@ -130,7 +131,7 @@ export function Home() {
             Analyze a Meeting Transcript
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto leading-relaxed">
-            Paste your transcript or upload a file — we'll extract the summary, decisions, action items, pain points, and more.
+            Paste your transcript or upload a file — we&apos;ll extract the summary, decisions, action items, pain points, and more.
           </p>
         </div>
 
@@ -170,7 +171,7 @@ export function Home() {
                 className={inputClass}
               />
               <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500 leading-relaxed">
-                If your transcript doesn't have speaker labels (e.g. Fireflies copy-paste), adding names here lets the AI attribute action items correctly.
+                If your transcript doesn&apos;t have speaker labels (e.g. Fireflies copy-paste), adding names here lets the AI attribute action items correctly.
               </p>
             </Field>
 

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "pack-extension": "zip -j public/meetiq-recorder.zip extension/manifest.json extension/content.js extension/popup.html extension/popup.js extension/icon.png extension/background.js"
   },
   "engines": {
     "node": ">=18.0.0"
