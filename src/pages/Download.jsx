@@ -68,8 +68,13 @@ export function Download() {
             <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">How to Use</h2>
           </div>
           <div className="px-6 py-5 space-y-3">
+            <div className="flex gap-3 items-start rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2.5">
+              <span className="shrink-0 text-amber-500 text-base">⚠</span>
+              <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                You must have MeetIQ open and logged in on another tab before starting a recording. The extension uses your session to save the meeting to your team.
+              </p>
+            </div>
             {[
-              'Make sure you are logged in to MeetIQ in another tab.',
               'Join your Google Meet as usual.',
               'Click the MeetIQ Recorder icon in your Chrome toolbar.',
               'Enter your name (as it appears in Meet) and click Start Recording.',
