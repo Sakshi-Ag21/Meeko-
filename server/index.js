@@ -421,25 +421,23 @@ app.get('/backfill-action-counts', requireAuth, async (req, res) => {
 
 app.get('/analytics', requireAuth, requireTeam, async (req, res) => {
   const tid = req.teamId
+  // Strip email domains in SQL, group by normalized name
   const [byDateRes, byParticipantRes, byActionsRes] = await Promise.all([
-    pool.query('SELECT date, COUNT(*)::int as count FROM meetings WHERE team_id = $1 GROUP BY date ORDER BY date ASC', [tid]),
-    pool.query('SELECT p.name, COUNT(*)::int as meetings FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 GROUP BY p.name ORDER BY meetings DESC LIMIT 100', [tid]),
-    pool.query('SELECT p.name, SUM(p.action_count)::int as count FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 AND p.name != \'Unassigned\' GROUP BY p.name ORDER BY count DESC LIMIT 100', [tid]),
+    pool.query(`SELECT date, COUNT(*)::int as count FROM meetings WHERE team_id = $1 GROUP BY date ORDER BY date ASC`, [tid]),
+    pool.query(`
+      SELECT CASE WHEN p.name LIKE '%@%' THEN split_part(p.name,'@',1) ELSE p.name END AS name,
+             COUNT(*)::int as meetings
+      FROM participants p JOIN meetings m ON m.id = p.meeting_id
+      WHERE m.team_id = $1
+      GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, [tid]),
+    pool.query(`
+      SELECT CASE WHEN p.name LIKE '%@%' THEN split_part(p.name,'@',1) ELSE p.name END AS name,
+             SUM(p.action_count)::int as count
+      FROM participants p JOIN meetings m ON m.id = p.meeting_id
+      WHERE m.team_id = $1 AND p.name != 'Unassigned'
+      GROUP BY 1 ORDER BY 2 DESC LIMIT 20`, [tid]),
   ])
-  const byParticipant = mergeNameCounts(byParticipantRes.rows)
-  const rawActions = byActionsRes.rows.map(r => ({ name: normName(r.name), count: r.count }))
-  const allNames = [...new Set([...byParticipant.map(r => r.name), ...rawActions.map(r => r.name)])]
-  const canon = buildCanonicalMap(allNames)
-  const mergedActions = {}
-  for (const { name, count } of rawActions) {
-    const c = canon[name] ?? name
-    mergedActions[c] = (mergedActions[c] ?? 0) + count
-  }
-  const byActions = Object.entries(mergedActions)
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 20)
-  res.json({ byDate: byDateRes.rows, byParticipant, byActions })
+  res.json({ byDate: byDateRes.rows, byParticipant: byParticipantRes.rows, byActions: byActionsRes.rows })
 })
 
 app.post('/team-summary', requireAuth, requireTeam, async (req, res) => {
