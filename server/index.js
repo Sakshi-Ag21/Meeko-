@@ -415,21 +415,25 @@ app.post('/ask-ai', requireAuth, requireTeam, async (req, res) => {
   if (!question?.trim()) return res.status(400).json({ error: 'question is required' })
   const tid = req.teamId
 
-  const COLS = 'id, title, date, speakers, summary, decisions, action_items, pain_points, person_wise'
   let rows
+  let includeTranscript = false
   if (Array.isArray(meeting_ids) && meeting_ids.length > 0) {
+    // Specific meetings selected — include full transcripts for deeper answers
     const ph = meeting_ids.map((_, i) => `$${i + 2}`).join(',')
-    rows = (await pool.query(`SELECT ${COLS} FROM meetings WHERE team_id = $1 AND id IN (${ph})`, [tid, ...meeting_ids])).rows
+    rows = (await pool.query(`SELECT * FROM meetings WHERE team_id = $1 AND id IN (${ph})`, [tid, ...meeting_ids])).rows
+    includeTranscript = meeting_ids.length <= 5
   } else {
-    // Limit to 30 most recent to keep prompt size manageable
-    rows = (await pool.query(`SELECT ${COLS} FROM meetings WHERE team_id = $1 ORDER BY date DESC LIMIT 30`, [tid])).rows
+    // All meetings — use summaries only (no transcripts) to fit all meetings in context
+    const COLS = 'id, title, date, speakers, summary, decisions, action_items, pain_points, person_wise'
+    rows = (await pool.query(`SELECT ${COLS} FROM meetings WHERE team_id = $1 ORDER BY date DESC`, [tid])).rows
   }
 
   if (rows.length === 0) return res.status(400).json({ error: 'No meetings selected.' })
 
   const context = rows.map(m => {
     const pwLines = Object.entries(JSON.parse(m.person_wise)).map(([n, items]) => `  ${n}: ${items.join('; ')}`).join('\n')
-    return `=== "${m.title}" (${m.date}) ===\nParticipants: ${JSON.parse(m.speakers).join(', ')}\nSummary: ${JSON.parse(m.summary).join(' | ') || 'N/A'}\nDecisions: ${JSON.parse(m.decisions).join(' | ') || 'N/A'}\nAction Items: ${JSON.parse(m.action_items).join(' | ') || 'N/A'}\nPain Points: ${JSON.parse(m.pain_points || '[]').join(' | ') || 'N/A'}\nPerson-wise:\n${pwLines || '  (none)'}`
+    const base = `=== "${m.title}" (${m.date}) ===\nParticipants: ${JSON.parse(m.speakers).join(', ')}\nSummary: ${JSON.parse(m.summary).join(' | ') || 'N/A'}\nDecisions: ${JSON.parse(m.decisions).join(' | ') || 'N/A'}\nAction Items: ${JSON.parse(m.action_items).join(' | ') || 'N/A'}\nPain Points: ${JSON.parse(m.pain_points || '[]').join(' | ') || 'N/A'}\nPerson-wise:\n${pwLines || '  (none)'}`
+    return includeTranscript ? `${base}\nFull Transcript:\n${m.transcript}` : base
   }).join('\n\n')
 
   const historyText = history.length > 0 ? '\n\nPrior conversation:\n' + history.map(h => `${h.role === 'user' ? 'Q' : 'A'}: ${h.content}`).join('\n') : ''
