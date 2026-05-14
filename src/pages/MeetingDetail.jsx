@@ -5,6 +5,10 @@ import { Navbar } from '../components/Navbar'
 import { speakerColor } from '../utils/speakerColor'
 import { apiFetch } from '../utils/api'
 
+function displayName(s) {
+  return s.includes('@') ? s.split('@')[0] : s
+}
+
 function formatDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', {
@@ -330,7 +334,7 @@ function PersonWiseSection({ personWise, speakers, onUpdate }) {
                   <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border ${speakerColor(person)}`}>
                     {person.charAt(0).toUpperCase()}
                   </span>
-                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{person}</span>
+                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{displayName(person)}</span>
                 </div>
                 <div className="pl-9 space-y-2">
                   {(draft[person] ?? []).map((item, i) => (
@@ -405,7 +409,7 @@ function PersonWiseSection({ personWise, speakers, onUpdate }) {
                       to={`/?q=${encodeURIComponent(person)}&filter=participant`}
                       className="text-sm font-semibold text-slate-800 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
                     >
-                      {person}
+                      {displayName(person)}
                     </Link>
                     <span className="text-xs text-slate-400 dark:text-slate-500">
                       {items.length} item{items.length !== 1 ? 's' : ''}
@@ -672,7 +676,7 @@ export function MeetingDetail() {
                         className={`text-xs px-3 py-1 rounded-full border font-medium transition-opacity hover:opacity-75 ${speakerColor(name)}`}
                         title={`See all meetings with ${name}`}
                       >
-                        {name}
+                        {displayName(name)}
                       </Link>
                     ))}
                   </div>
