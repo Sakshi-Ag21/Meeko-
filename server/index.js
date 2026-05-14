@@ -273,7 +273,8 @@ app.post('/analyze-transcript', requireAuth, requireTeam, async (req, res) => {
         JSON.stringify(parsed.person_wise ?? {}), JSON.stringify(speakers), new Date().toISOString()]
     )
     for (const name of speakers) {
-      await client.query('INSERT INTO participants (meeting_id, name) VALUES ($1, $2)', [id, name])
+      const ac = (pw[name]?.length ?? 0)
+      await client.query('INSERT INTO participants (meeting_id, name, action_count) VALUES ($1, $2, $3)', [id, name, ac])
     }
     await client.query('COMMIT')
   } catch (err) {
@@ -399,22 +400,14 @@ function mergeNameCounts(raw) {
 
 app.get('/analytics', requireAuth, requireTeam, async (req, res) => {
   const tid = req.teamId
-  const [byDateRes, byParticipantRes, pwRes] = await Promise.all([
+  const [byDateRes, byParticipantRes, byActionsRes] = await Promise.all([
     pool.query('SELECT date, COUNT(*)::int as count FROM meetings WHERE team_id = $1 GROUP BY date ORDER BY date ASC', [tid]),
     pool.query('SELECT p.name, COUNT(*)::int as meetings FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 GROUP BY p.name ORDER BY meetings DESC LIMIT 100', [tid]),
-    pool.query('SELECT person_wise FROM meetings WHERE team_id = $1', [tid]),
+    pool.query('SELECT p.name, SUM(p.action_count)::int as count FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 AND p.name != \'Unassigned\' GROUP BY p.name ORDER BY count DESC LIMIT 100', [tid]),
   ])
-  const actionMap = {}
-  for (const row of pwRes.rows) {
-    for (const [name, items] of Object.entries(JSON.parse(row.person_wise))) {
-      if (name === 'Unassigned') continue
-      const n = normName(name)
-      actionMap[n] = (actionMap[n] ?? 0) + (items?.length ?? 0)
-    }
-  }
-  const rawActions = Object.entries(actionMap).map(([name, count]) => ({ name, count }))
   const byParticipant = mergeNameCounts(byParticipantRes.rows)
-  const allNames = byParticipant.map(r => r.name)
+  const rawActions = byActionsRes.rows.map(r => ({ name: normName(r.name), count: r.count }))
+  const allNames = [...new Set([...byParticipant.map(r => r.name), ...rawActions.map(r => r.name)])]
   const canon = buildCanonicalMap(allNames)
   const mergedActions = {}
   for (const { name, count } of rawActions) {

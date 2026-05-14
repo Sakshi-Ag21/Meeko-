@@ -51,10 +51,12 @@ export async function initDb() {
     );
 
     CREATE TABLE IF NOT EXISTS participants (
-      id         SERIAL PRIMARY KEY,
-      meeting_id TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-      name       TEXT NOT NULL
+      id           SERIAL PRIMARY KEY,
+      meeting_id   TEXT NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      name         TEXT NOT NULL,
+      action_count INT NOT NULL DEFAULT 0
     );
+    ALTER TABLE participants ADD COLUMN IF NOT EXISTS action_count INT NOT NULL DEFAULT 0;
 
     CREATE TABLE IF NOT EXISTS ai_sessions (
       id          TEXT PRIMARY KEY,
@@ -74,6 +76,23 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_ai_sessions_team     ON ai_sessions(team_id);
     CREATE INDEX IF NOT EXISTS idx_ai_sessions_updated  ON ai_sessions(updated_at DESC);
   `)
+
+  // Backfill action_count for existing participants that have 0 (pre-migration rows)
+  const stale = await pool.query(`
+    SELECT p.id, p.name, m.person_wise
+    FROM participants p
+    JOIN meetings m ON m.id = p.meeting_id
+    WHERE p.action_count = 0 AND p.name != 'Unassigned'
+  `)
+  for (const row of stale.rows) {
+    try {
+      const pw = JSON.parse(row.person_wise)
+      const count = pw[row.name]?.length ?? 0
+      if (count > 0) {
+        await pool.query('UPDATE participants SET action_count = $1 WHERE id = $2', [count, row.id])
+      }
+    } catch {}
+  }
 }
 
 export default pool
