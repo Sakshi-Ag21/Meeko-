@@ -398,6 +398,27 @@ function mergeNameCounts(raw) {
     .slice(0, 20)
 }
 
+// One-time backfill: update action_count for participants that still have 0
+// Runs in background — call GET /api/backfill-action-counts once after deploy
+app.get('/backfill-action-counts', requireAuth, async (req, res) => {
+  res.json({ message: 'backfill started in background' })
+  try {
+    const rows = (await pool.query(`
+      SELECT p.id, p.name, m.person_wise
+      FROM participants p JOIN meetings m ON m.id = p.meeting_id
+      WHERE p.action_count = 0 AND p.name != 'Unassigned'
+    `)).rows
+    for (const row of rows) {
+      try {
+        const pw = JSON.parse(row.person_wise)
+        const count = pw[row.name]?.length ?? 0
+        if (count > 0) await pool.query('UPDATE participants SET action_count = $1 WHERE id = $2', [count, row.id])
+      } catch {}
+    }
+    console.log(`Backfilled action_count for ${rows.length} participants`)
+  } catch (err) { console.error('Backfill error:', err.message) }
+})
+
 app.get('/analytics', requireAuth, requireTeam, async (req, res) => {
   const tid = req.teamId
   const [byDateRes, byParticipantRes, byActionsRes] = await Promise.all([
