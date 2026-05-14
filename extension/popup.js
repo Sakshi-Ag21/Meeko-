@@ -3,8 +3,8 @@ const $ = id => document.getElementById(id)
 let meetTab = null
 let finalTranscript = []
 
-const DEFAULT_URL = 'http://localhost:5173'
-const DEFAULT_API = 'http://localhost:5001'
+const DEFAULT_URL = 'https://meeko-henna.vercel.app'
+const DEFAULT_API = 'https://meeko-henna.vercel.app/api'
 
 async function getMeetTab() {
   const tabs = await chrome.tabs.query({ url: 'https://meet.google.com/*' })
@@ -118,8 +118,7 @@ async function init() {
       }
 
       const meetiqUrl = ($('meetiq-url').value.trim() || DEFAULT_URL).replace(/\/$/, '')
-      const isLocal = meetiqUrl.includes('localhost')
-      const apiUrl = isLocal ? DEFAULT_API : `${meetiqUrl}/api`
+      const apiUrl = meetiqUrl.includes('localhost') ? DEFAULT_API : `${meetiqUrl}/api`
 
       $('lines').textContent = `${finalTranscript.length} lines captured — analyzing…`
       setStatus('Analyzing…')
