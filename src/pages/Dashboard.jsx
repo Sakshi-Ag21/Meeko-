@@ -5,6 +5,10 @@ import { useDebounce } from '../hooks/useDebounce'
 import { speakerColor } from '../utils/speakerColor'
 import { apiFetch } from '../utils/api'
 
+function displayName(s) {
+  return s.includes('@') ? s.split('@')[0] : s
+}
+
 function formatDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', {
@@ -70,7 +74,7 @@ function MeetingCard({ meeting, onParticipantClick }) {
               title={`Filter by ${name}`}
               className={`text-xs px-2.5 py-0.5 rounded-full border font-medium transition-all hover:scale-105 hover:shadow-sm ${speakerColor(name)}`}
             >
-              {name}
+              {displayName(name)}
             </button>
           ))}
           {extra > 0 && (
