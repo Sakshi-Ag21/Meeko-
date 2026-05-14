@@ -8,6 +8,10 @@ import { Navbar } from '../components/Navbar'
 import { speakerColor } from '../utils/speakerColor'
 import { apiFetch } from '../utils/api'
 
+function displayName(s) {
+  return s?.includes('@') ? s.split('@')[0] : s
+}
+
 // Format "2026-04-09" → "Apr 9"
 function fmtDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number)
@@ -105,8 +109,10 @@ export function Analytics() {
   }, [])
 
   const dateData = (data?.byDate ?? []).map(d => ({ ...d, label: fmtDate(d.date) }))
-  const topParticipant = data?.byParticipant?.[0]
-  const topAction = data?.byActions?.[0]
+  const byParticipant = (data?.byParticipant ?? []).map(d => ({ ...d, name: displayName(d.name) }))
+  const byActions = (data?.byActions ?? []).map(d => ({ ...d, name: displayName(d.name) }))
+  const topParticipant = byParticipant[0]
+  const topAction = byActions[0]
   const totalActions = (data?.byActions ?? []).reduce((s, d) => s + d.count, 0)
 
   return (
@@ -188,11 +194,11 @@ export function Analytics() {
               <>
                 {topParticipant && (
                   <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                    Most active: <span className="font-semibold text-slate-700 dark:text-slate-200">{topParticipant.name}</span>
+                    Most active: <span className="font-semibold text-slate-700 dark:text-slate-200">{displayName(topParticipant.name)}</span>
                     {' '}<span className="text-slate-400">({topParticipant.meetings} meetings)</span>
                   </p>
                 )}
-                <PeopleChart data={data?.byParticipant ?? []} valueKey="meetings" label="meetings" />
+                <PeopleChart data={byParticipant} valueKey="meetings" label="meetings" />
               </>
             )}
           </ChartCard>
@@ -202,18 +208,18 @@ export function Analytics() {
               <>
                 {topAction && (
                   <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                    Most assigned: <span className="font-semibold text-slate-700 dark:text-slate-200">{topAction.name}</span>
+                    Most assigned: <span className="font-semibold text-slate-700 dark:text-slate-200">{displayName(topAction.name)}</span>
                     {' '}<span className="text-slate-400">({topAction.count} items)</span>
                   </p>
                 )}
-                <PeopleChart data={data?.byActions ?? []} valueKey="count" label="action items" />
+                <PeopleChart data={byActions} valueKey="count" label="action items" />
               </>
             )}
           </ChartCard>
         </motion.div>
 
         {/* Breakdown table */}
-        {!loading && (data?.byParticipant?.length ?? 0) > 0 && (
+        {!loading && byParticipant.length > 0 && (
           <motion.div initial="hidden" animate="show" variants={fadeUp}>
             <ChartCard icon="📊" title="Participant Breakdown">
               <div className="overflow-x-auto">
@@ -226,8 +232,8 @@ export function Analytics() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(data?.byParticipant ?? []).map((p, i) => {
-                      const actions = (data?.byActions ?? []).find(a => a.name === p.name)?.count ?? 0
+                    {byParticipant.map((p, i) => {
+                      const actions = byActions.find(a => a.name === p.name)?.count ?? 0
                       const avg = p.meetings > 0 ? (actions / p.meetings).toFixed(1) : '0'
                       return (
                         <motion.tr
@@ -242,7 +248,7 @@ export function Analytics() {
                               <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border ${speakerColor(p.name)}`}>
                                 {p.name.charAt(0).toUpperCase()}
                               </span>
-                              <span className="text-slate-700 dark:text-slate-300 font-medium">{p.name}</span>
+                              <span className="text-slate-700 dark:text-slate-300 font-medium">{displayName(p.name)}</span>
                             </div>
                           </td>
                           <td className="py-3 pr-4 text-right tabular-nums font-semibold text-indigo-600 dark:text-indigo-400">{p.meetings}</td>

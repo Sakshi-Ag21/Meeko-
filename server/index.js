@@ -351,22 +351,81 @@ app.delete('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
   res.json({ ok: true })
 })
 
+// Normalize a raw name: strip email domain, trim
+function normName(raw) {
+  const s = (raw || '').trim()
+  return s.includes('@') ? s.split('@')[0].trim() : s
+}
+
+// Merge names that are substrings of each other — shorter collapses into longer
+// e.g. "Tanveer" + "Tanveer Mujawar" → both become "Tanveer Mujawar"
+function buildCanonicalMap(names) {
+  const sorted = [...new Set(names)].sort((a, b) => b.length - a.length)
+  const canon = {}
+  for (const name of sorted) {
+    const lower = name.toLowerCase()
+    const parent = sorted.find(other => {
+      if (other === name) return false
+      const ol = other.toLowerCase()
+      return ol.includes(lower) || lower.includes(ol)
+    })
+    canon[name] = parent ?? name
+  }
+  // flatten transitive chains
+  for (const k of Object.keys(canon)) {
+    let v = canon[k]
+    while (canon[v] && canon[v] !== v) v = canon[v]
+    canon[k] = v
+  }
+  return canon
+}
+
+function mergeNameCounts(raw) {
+  // raw: [{name, count/meetings}]
+  const valueKey = raw[0] && 'meetings' in raw[0] ? 'meetings' : 'count'
+  const normed = raw.map(r => ({ name: normName(r.name), val: r[valueKey] }))
+  const allNames = normed.map(r => r.name)
+  const canon = buildCanonicalMap(allNames)
+  const merged = {}
+  for (const { name, val } of normed) {
+    const c = canon[name] ?? name
+    merged[c] = (merged[c] ?? 0) + val
+  }
+  return Object.entries(merged)
+    .map(([name, v]) => ({ name, [valueKey]: v }))
+    .sort((a, b) => b[valueKey] - a[valueKey])
+    .slice(0, 20)
+}
+
 app.get('/analytics', requireAuth, requireTeam, async (req, res) => {
   const tid = req.teamId
   const [byDateRes, byParticipantRes, pwRes] = await Promise.all([
     pool.query('SELECT date, COUNT(*)::int as count FROM meetings WHERE team_id = $1 GROUP BY date ORDER BY date ASC', [tid]),
-    pool.query('SELECT p.name, COUNT(*)::int as meetings FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 GROUP BY p.name ORDER BY meetings DESC LIMIT 20', [tid]),
+    pool.query('SELECT p.name, COUNT(*)::int as meetings FROM participants p JOIN meetings m ON m.id = p.meeting_id WHERE m.team_id = $1 GROUP BY p.name ORDER BY meetings DESC LIMIT 100', [tid]),
     pool.query('SELECT person_wise FROM meetings WHERE team_id = $1', [tid]),
   ])
   const actionMap = {}
   for (const row of pwRes.rows) {
     for (const [name, items] of Object.entries(JSON.parse(row.person_wise))) {
       if (name === 'Unassigned') continue
-      actionMap[name] = (actionMap[name] ?? 0) + (items?.length ?? 0)
+      const n = normName(name)
+      actionMap[n] = (actionMap[n] ?? 0) + (items?.length ?? 0)
     }
   }
-  const byActions = Object.entries(actionMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 20)
-  res.json({ byDate: byDateRes.rows, byParticipant: byParticipantRes.rows, byActions })
+  const rawActions = Object.entries(actionMap).map(([name, count]) => ({ name, count }))
+  const byParticipant = mergeNameCounts(byParticipantRes.rows)
+  const allNames = byParticipant.map(r => r.name)
+  const canon = buildCanonicalMap(allNames)
+  const mergedActions = {}
+  for (const { name, count } of rawActions) {
+    const c = canon[name] ?? name
+    mergedActions[c] = (mergedActions[c] ?? 0) + count
+  }
+  const byActions = Object.entries(mergedActions)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20)
+  res.json({ byDate: byDateRes.rows, byParticipant, byActions })
 })
 
 app.post('/team-summary', requireAuth, requireTeam, async (req, res) => {
