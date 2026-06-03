@@ -9,3 +9,6 @@ dist
 *.db
 *.db-shm
 *.db-wal
+
+# Import progress state (local only)
+scripts/import-progress.json

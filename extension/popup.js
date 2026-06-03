@@ -108,9 +108,18 @@ async function init() {
       const resp = await chrome.tabs.sendMessage(meetTab.id, { type: 'STOP_RECORDING' })
       if (!resp?.ok) return
 
-      finalTranscript = resp.transcript || []
+      // Prefer content-script transcript; fall back to storage if it was reset mid-session
+      const fromContent = resp.transcript || []
+      if (fromContent.length > 0) {
+        finalTranscript = fromContent
+      } else if (!finalTranscript.length) {
+        const saved = await chrome.storage.local.get('meetiq_transcript')
+        finalTranscript = saved.meetiq_transcript || []
+      }
+
       setRecordingUI(false)
       $('lines').style.display = 'block'
+      $('lines').textContent = `${finalTranscript.length} lines captured`
 
       if (!finalTranscript.length) {
         showError('No speech captured. Make sure your microphone is working.')
