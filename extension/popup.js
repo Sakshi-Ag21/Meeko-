@@ -50,19 +50,25 @@ function savePrefs() {
   chrome.storage.local.set({
     meetiq_url: $('meetiq-url').value.trim(),
     meetiq_user: $('user-name').value.trim(),
-    meetiq_deepgram_key: $('deepgram-key').value.trim(),
   })
 }
 
+async function fetchDeepgramKey(apiUrl, token) {
+  const res = await fetch(`${apiUrl}/deepgram-key`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error('Could not fetch Deepgram key from server.')
+  const data = await res.json()
+  return data.key
+}
+
 async function init() {
-  const prefs = await chrome.storage.local.get(['meetiq_url', 'meetiq_user', 'meetiq_deepgram_key', 'meetiq_recording', 'meetiq_transcript'])
+  const prefs = await chrome.storage.local.get(['meetiq_url', 'meetiq_user', 'meetiq_recording', 'meetiq_transcript'])
   $('meetiq-url').value = prefs.meetiq_url || DEFAULT_URL
   $('user-name').value = prefs.meetiq_user || ''
-  $('deepgram-key').value = prefs.meetiq_deepgram_key || ''
 
   $('meetiq-url').addEventListener('change', savePrefs)
   $('user-name').addEventListener('change', savePrefs)
-  $('deepgram-key').addEventListener('change', savePrefs)
 
   meetTab = await getMeetTab()
 
@@ -92,12 +98,23 @@ async function init() {
   $('btn-record').addEventListener('click', async () => {
     showError('')
     savePrefs()
-    const deepgramKey = $('deepgram-key').value.trim()
-    if (!deepgramKey) {
-      showError('Enter your Deepgram API key above before recording.')
-      return
-    }
     try {
+      const meetiqUrl = ($('meetiq-url').value.trim() || DEFAULT_URL).replace(/\/$/, '')
+      const apiUrl = meetiqUrl.includes('localhost') ? DEFAULT_API : `${meetiqUrl}/api`
+      const auth = await getMeetIQAuth(meetiqUrl)
+      if (!auth?.token) {
+        showError('Not logged in to MeetIQ. Open MeetIQ and log in first.')
+        return
+      }
+
+      let deepgramKey
+      try {
+        deepgramKey = await fetchDeepgramKey(apiUrl, auth.token)
+      } catch {
+        showError('Could not get transcription key from server. Check your MeetIQ connection.')
+        return
+      }
+
       const resp = await chrome.tabs.sendMessage(meetTab.id, {
         type: 'START_RECORDING',
         userName: $('user-name').value.trim(),

@@ -224,6 +224,14 @@ app.delete('/teams/:id/members/:userId', requireAuth, async (req, res) => {
   res.json({ ok: true })
 })
 
+// ─── Config endpoint ─────────────────────────────────────────────────────────
+
+app.get('/deepgram-key', requireAuth, (_req, res) => {
+  const key = process.env.DEEPGRAM_API_KEY
+  if (!key) return res.status(503).json({ error: 'Deepgram not configured on server.' })
+  res.json({ key })
+})
+
 // ─── Data routes (all scoped to team) ───────────────────────────────────────
 
 app.post('/analyze-transcript', requireAuth, requireTeam, async (req, res) => {
