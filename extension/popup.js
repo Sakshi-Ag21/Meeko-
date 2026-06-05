@@ -50,16 +50,19 @@ function savePrefs() {
   chrome.storage.local.set({
     meetiq_url: $('meetiq-url').value.trim(),
     meetiq_user: $('user-name').value.trim(),
+    meetiq_deepgram_key: $('deepgram-key').value.trim(),
   })
 }
 
 async function init() {
-  const prefs = await chrome.storage.local.get(['meetiq_url', 'meetiq_user', 'meetiq_recording', 'meetiq_transcript'])
+  const prefs = await chrome.storage.local.get(['meetiq_url', 'meetiq_user', 'meetiq_deepgram_key', 'meetiq_recording', 'meetiq_transcript'])
   $('meetiq-url').value = prefs.meetiq_url || DEFAULT_URL
   $('user-name').value = prefs.meetiq_user || ''
+  $('deepgram-key').value = prefs.meetiq_deepgram_key || ''
 
   $('meetiq-url').addEventListener('change', savePrefs)
   $('user-name').addEventListener('change', savePrefs)
+  $('deepgram-key').addEventListener('change', savePrefs)
 
   meetTab = await getMeetTab()
 
@@ -89,14 +92,22 @@ async function init() {
   $('btn-record').addEventListener('click', async () => {
     showError('')
     savePrefs()
+    const deepgramKey = $('deepgram-key').value.trim()
+    if (!deepgramKey) {
+      showError('Enter your Deepgram API key above before recording.')
+      return
+    }
     try {
       const resp = await chrome.tabs.sendMessage(meetTab.id, {
         type: 'START_RECORDING',
         userName: $('user-name').value.trim(),
+        deepgramKey,
       })
       if (resp?.ok) {
         finalTranscript = []
         setRecordingUI(true)
+      } else if (resp?.error) {
+        showError(resp.error)
       }
     } catch {
       showError('Could not connect to Google Meet tab. Reload the Meet page and try again.')
