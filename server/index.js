@@ -305,6 +305,15 @@ app.get('/stats', requireAuth, requireTeam, async (req, res) => {
   res.json({ totalMeetings: tm.n, uniqueParticipants: up.n, thisMonth: mm.n })
 })
 
+// Lightweight endpoint for dedup — returns all title+date pairs, no limit
+app.get('/meeting-keys', requireAuth, requireTeam, async (req, res) => {
+  const rows = await pool.query(
+    'SELECT title, date FROM meetings WHERE team_id = $1',
+    [req.teamId]
+  )
+  res.json(rows.rows)
+})
+
 app.get('/meetings', requireAuth, requireTeam, async (req, res) => {
   const { q, filter } = req.query
   const tid = req.teamId

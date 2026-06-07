@@ -114,9 +114,9 @@ export function ImportFireflies() {
         return true
       })
 
-      // 3. Fetch existing meetings for dedup (title+date)
+      // 3. Fetch all existing title+date pairs for dedup (no 200-row limit)
       setPhase('Checking for existing meetings…')
-      const existingRes = await apiFetch('/meetings')
+      const existingRes = await apiFetch('/meeting-keys')
       const existing = existingRes.ok ? await existingRes.json() : []
       const existingKeys = new Set(
         Array.isArray(existing) ? existing.map(m => `${m.title}||${m.date}`) : []
