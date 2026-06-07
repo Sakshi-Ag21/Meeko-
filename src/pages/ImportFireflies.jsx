@@ -235,7 +235,7 @@ export function ImportFireflies() {
             </div>
             <ol className="text-xs text-slate-400 mt-1.5 space-y-0.5 list-none">
               <li>1. Go to <span className="font-medium text-slate-500 dark:text-slate-400">app.fireflies.ai</span> and log in</li>
-              <li>2. Click your profile picture (top-right) → <span className="font-medium text-slate-500 dark:text-slate-400">Settings</span></li>
+              <li>2. Click <span className="font-medium text-slate-500 dark:text-slate-400">Settings</span> in the left sidebar</li>
               <li>3. Open <span className="font-medium text-slate-500 dark:text-slate-400">Developer Settings</span></li>
               <li>4. Copy your API key and paste it above</li>
             </ol>
