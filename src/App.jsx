@@ -13,6 +13,7 @@ import { Register } from './pages/Register'
 import { NewTeam, JoinTeam, TeamSettings } from './pages/TeamSetup'
 import { Onboarding } from './pages/Onboarding'
 import { Download } from './pages/Download'
+import { ImportFireflies } from './pages/ImportFireflies'
 
 function AppToaster() {
   const { theme } = useTheme()
@@ -52,6 +53,7 @@ function AppRoutes() {
       <Route path="/ask-ai" element={<ProtectedRoute><AskAI /></ProtectedRoute>} />
       <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
       <Route path="/download" element={<Download />} />
+      <Route path="/import" element={<ProtectedRoute><ImportFireflies /></ProtectedRoute>} />
       <Route path="/teams/new" element={<ProtectedRoute><NewTeam /></ProtectedRoute>} />
       <Route path="/teams/:id/settings" element={<ProtectedRoute><TeamSettings /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
