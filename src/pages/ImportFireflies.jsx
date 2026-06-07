@@ -233,9 +233,12 @@ export function ImportFireflies() {
                 {showKey ? 'Hide' : 'Show'}
               </button>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Find it in your Fireflies dashboard → Integrations → API.
-            </p>
+            <ol className="text-xs text-slate-400 mt-1.5 space-y-0.5 list-none">
+              <li>1. Go to <span className="font-medium text-slate-500 dark:text-slate-400">app.fireflies.ai</span> and log in</li>
+              <li>2. Click your profile picture (top-right) → <span className="font-medium text-slate-500 dark:text-slate-400">Integrations</span></li>
+              <li>3. Open the <span className="font-medium text-slate-500 dark:text-slate-400">API</span> tab</li>
+              <li>4. Copy your API key and paste it above</li>
+            </ol>
           </div>
 
           {/* Date range */}
