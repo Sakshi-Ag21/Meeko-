@@ -518,11 +518,17 @@ app.post('/ask-ai', requireAuth, requireTeam, async (req, res) => {
 
   if (rows.length === 0) return res.status(400).json({ error: 'No meetings selected.' })
 
-  const context = rows.map(m => {
+  // Cap to 80 most recent meetings to stay within Vercel's 60s timeout
+  const capped = rows.slice(0, 80)
+
+  let context = capped.map(m => {
     const pwLines = Object.entries(JSON.parse(m.person_wise)).map(([n, items]) => `  ${n}: ${items.join('; ')}`).join('\n')
     const base = `=== "${m.title}" (${m.date}) ===\nParticipants: ${JSON.parse(m.speakers).join(', ')}\nSummary: ${JSON.parse(m.summary).join(' | ') || 'N/A'}\nDecisions: ${JSON.parse(m.decisions).join(' | ') || 'N/A'}\nAction Items: ${JSON.parse(m.action_items).join(' | ') || 'N/A'}\nPain Points: ${JSON.parse(m.pain_points || '[]').join(' | ') || 'N/A'}\nPerson-wise:\n${pwLines || '  (none)'}`
     return includeTranscript ? `${base}\nFull Transcript:\n${m.transcript}` : base
   }).join('\n\n')
+
+  // Hard cap at 120k chars so Gemini responds well within 60s
+  if (context.length > 120000) context = context.slice(0, 120000) + '\n\n[context truncated]'
 
   const historyText = history.length > 0 ? '\n\nPrior conversation:\n' + history.map(h => `${h.role === 'user' ? 'Q' : 'A'}: ${h.content}`).join('\n') : ''
 

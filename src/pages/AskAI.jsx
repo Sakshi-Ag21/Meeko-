@@ -208,7 +208,10 @@ export function AskAI() {
         method: 'POST',
         body: JSON.stringify({ question: q, meeting_ids: [...selectedIds], history: messages.slice(-8) }),
       })
-      const data = await res.json()
+      let data
+      try { data = await res.json() } catch {
+        throw new Error(res.status === 504 ? 'Request timed out — try selecting fewer meetings or asking a simpler question.' : 'Server returned an unexpected response.')
+      }
       if (!res.ok) throw new Error(data.error || 'Server error')
 
       const aiMsg = { role: 'ai', content: data.answer }
