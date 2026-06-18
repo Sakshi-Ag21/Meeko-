@@ -150,7 +150,7 @@ app.post('/auth/forgot-password', async (req, res) => {
   const appUrl = (process.env.APP_URL || 'https://meeko-henna.vercel.app').replace(/\/$/, '')
   const resetUrl = `${appUrl}/reset-password?token=${token}`
 
-  await resend.emails.send({
+  const sendResult = await resend.emails.send({
     from: process.env.RESEND_FROM || 'MeetIQ <onboarding@resend.dev>',
     to: email.trim(),
     subject: 'Reset your MeetIQ password',
@@ -165,6 +165,12 @@ app.post('/auth/forgot-password', async (req, res) => {
       </div>
     `,
   })
+
+  console.log('Resend result:', JSON.stringify(sendResult))
+  if (sendResult.error) {
+    console.error('Resend error:', sendResult.error)
+    return res.status(502).json({ error: `Failed to send email: ${sendResult.error.message}` })
+  }
 
   res.json({ ok: true })
 })
