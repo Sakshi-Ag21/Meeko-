@@ -440,6 +440,16 @@ app.delete('/meetings/:id', requireAuth, requireTeam, async (req, res) => {
   res.json({ ok: true })
 })
 
+app.delete('/meetings', requireAuth, requireTeam, async (req, res) => {
+  const { ids } = req.body
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids must be a non-empty array' })
+  const result = await pool.query(
+    'DELETE FROM meetings WHERE id = ANY($1) AND team_id = $2',
+    [ids, req.teamId]
+  )
+  res.json({ deleted: result.rowCount })
+})
+
 // Normalize a raw name: strip email domain, trim
 function normName(raw) {
   const s = (raw || '').trim()
