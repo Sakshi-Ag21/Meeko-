@@ -14,6 +14,8 @@ import { NewTeam, JoinTeam, TeamSettings } from './pages/TeamSetup'
 import { Onboarding } from './pages/Onboarding'
 import { Download } from './pages/Download'
 import { ImportFireflies } from './pages/ImportFireflies'
+import { ForgotPassword } from './pages/ForgotPassword'
+import { ResetPassword } from './pages/ResetPassword'
 
 function AppToaster() {
   const { theme } = useTheme()
@@ -44,6 +46,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/teams/join/:token" element={<JoinTeam />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/analyze" element={<ProtectedRoute><Home /></ProtectedRoute>} />

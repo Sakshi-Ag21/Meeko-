@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { Resend } from 'resend'
 import pool, { initDb } from './db.js'
 import { signToken, requireAuth, requireTeam } from './auth.js'
 
@@ -11,6 +12,7 @@ dotenv.config()
 
 const app = express()
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+const resend = new Resend(process.env.RESEND_API_KEY)
 
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
@@ -128,6 +130,64 @@ app.post('/auth/login', async (req, res) => {
 
   const payload = { id: user.id, name: user.name, email: user.email }
   res.json({ token: signToken(payload), user: payload })
+})
+
+app.post('/auth/forgot-password', async (req, res) => {
+  const { email } = req.body
+  if (!email?.trim()) return res.status(400).json({ error: 'Email is required.' })
+
+  const user = (await pool.query('SELECT id, name FROM users WHERE email = $1', [email.toLowerCase().trim()])).rows[0]
+  // Always return success to avoid leaking whether email exists
+  if (!user) return res.json({ ok: true })
+
+  const token = randomUUID()
+  const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+  await pool.query(
+    'INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES ($1, $2, $3)',
+    [token, user.id, expires]
+  )
+
+  const appUrl = (process.env.APP_URL || 'https://meeko-henna.vercel.app').replace(/\/$/, '')
+  const resetUrl = `${appUrl}/reset-password?token=${token}`
+
+  await resend.emails.send({
+    from: process.env.RESEND_FROM || 'MeetIQ <onboarding@resend.dev>',
+    to: email.trim(),
+    subject: 'Reset your MeetIQ password',
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+        <h2 style="color:#4f46e5;margin-bottom:8px">Reset your password</h2>
+        <p style="color:#475569;margin-bottom:24px">Hi ${user.name}, click the button below to set a new password. This link expires in 1 hour.</p>
+        <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
+          Reset Password
+        </a>
+        <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you didn't request this, ignore this email. Your password won't change.</p>
+      </div>
+    `,
+  })
+
+  res.json({ ok: true })
+})
+
+app.post('/auth/reset-password', async (req, res) => {
+  const { token, password } = req.body
+  if (!token || !password) return res.status(400).json({ error: 'Token and password are required.' })
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' })
+
+  const row = (await pool.query(
+    'SELECT * FROM password_reset_tokens WHERE token = $1',
+    [token]
+  )).rows[0]
+
+  if (!row) return res.status(400).json({ error: 'Invalid or expired reset link.' })
+  if (row.used) return res.status(400).json({ error: 'This reset link has already been used.' })
+  if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'This reset link has expired. Please request a new one.' })
+
+  const hash = await bcrypt.hash(password, 10)
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, row.user_id])
+  await pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE token = $1', [token])
+
+  res.json({ ok: true })
 })
 
 app.get('/auth/me', requireAuth, async (req, res) => {

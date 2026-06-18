@@ -68,6 +68,13 @@ export async function initDb() {
       updated_at  TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      token      TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      used       BOOLEAN NOT NULL DEFAULT FALSE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_team_members_user    ON team_members(user_id);
     CREATE INDEX IF NOT EXISTS idx_team_members_team    ON team_members(team_id);
     CREATE INDEX IF NOT EXISTS idx_meetings_date        ON meetings(date);
