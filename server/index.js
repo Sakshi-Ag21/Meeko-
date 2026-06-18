@@ -4,7 +4,7 @@ import dotenv from 'dotenv'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import { Resend } from 'resend'
+import nodemailer from 'nodemailer'
 import pool, { initDb } from './db.js'
 import { signToken, requireAuth, requireTeam } from './auth.js'
 
@@ -12,7 +12,13 @@ dotenv.config()
 
 const app = express()
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
-const resend = new Resend(process.env.RESEND_API_KEY)
+const mailer = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+})
 
 app.use(cors())
 app.use(express.json({ limit: '2mb' }))
@@ -150,26 +156,25 @@ app.post('/auth/forgot-password', async (req, res) => {
   const appUrl = (process.env.APP_URL || 'https://meeko-henna.vercel.app').replace(/\/$/, '')
   const resetUrl = `${appUrl}/reset-password?token=${token}`
 
-  const sendResult = await resend.emails.send({
-    from: process.env.RESEND_FROM || 'MeetIQ <onboarding@resend.dev>',
-    to: email.trim(),
-    subject: 'Reset your MeetIQ password',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
-        <h2 style="color:#4f46e5;margin-bottom:8px">Reset your password</h2>
-        <p style="color:#475569;margin-bottom:24px">Hi ${user.name}, click the button below to set a new password. This link expires in 1 hour.</p>
-        <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
-          Reset Password
-        </a>
-        <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you didn't request this, ignore this email. Your password won't change.</p>
-      </div>
-    `,
-  })
-
-  console.log('Resend result:', JSON.stringify(sendResult))
-  if (sendResult.error) {
-    console.error('Resend error:', sendResult.error)
-    return res.status(502).json({ error: `Failed to send email: ${sendResult.error.message}` })
+  try {
+    await mailer.sendMail({
+      from: `MeetIQ <${process.env.SMTP_USER}>`,
+      to: email.trim(),
+      subject: 'Reset your MeetIQ password',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
+          <h2 style="color:#4f46e5;margin-bottom:8px">Reset your password</h2>
+          <p style="color:#475569;margin-bottom:24px">Hi ${user.name}, click the button below to set a new password. This link expires in 1 hour.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">
+            Reset Password
+          </a>
+          <p style="color:#94a3b8;font-size:12px;margin-top:24px">If you didn't request this, ignore this email. Your password won't change.</p>
+        </div>
+      `,
+    })
+  } catch (err) {
+    console.error('Mailer error:', err.message)
+    return res.status(502).json({ error: 'Failed to send email. Please try again.' })
   }
 
   res.json({ ok: true })
