@@ -63,6 +63,7 @@ export function ImportFireflies() {
   const [showKey, setShowKey]   = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
+  const [keyword, setKeyword]   = useState('')
   const [running, setRunning]   = useState(false)
   const [done, setDone]         = useState(false)
   const [log, setLog]           = useState([])       // { title, date, status }
@@ -105,12 +106,14 @@ export function ImportFireflies() {
         await sleep(300)
       }
 
-      // 2. Filter by date range
+      // 2. Filter by date range and keyword
+      const kw = keyword.trim().toLowerCase()
       const filtered = all.filter(m => {
         const d = m.date ? new Date(m.date).toISOString().slice(0, 10) : null
         if (!d) return false
         if (dateFrom && d < dateFrom) return false
         if (dateTo   && d > dateTo)   return false
+        if (kw && !m.title?.toLowerCase().includes(kw)) return false
         return true
       })
 
@@ -269,6 +272,22 @@ export function ImportFireflies() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Keyword filter */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5">
+              Title keyword <span className="font-normal normal-case">(leave blank to import all)</span>
+            </label>
+            <input
+              type="text"
+              value={keyword}
+              onChange={e => setKeyword(e.target.value)}
+              disabled={running}
+              placeholder="e.g. Tech Standup, Sales Call, 1:1"
+              className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-400 px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow disabled:opacity-60"
+            />
+            <p className="text-xs text-slate-400 mt-1">Only imports meetings whose title contains this text (case-insensitive).</p>
           </div>
 
           {/* Actions */}
