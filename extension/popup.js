@@ -46,6 +46,33 @@ function showError(msg) {
   $('error').style.display = msg ? 'block' : 'none'
 }
 
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return 'unknown size'
+  if (bytes < 1024) return `${bytes} B`
+  const units = ['KB', 'MB', 'GB']
+  let value = bytes / 1024
+  let unit = units.shift()
+  while (value >= 1024 && units.length) {
+    value /= 1024
+    unit = units.shift()
+  }
+  return `${value.toFixed(value >= 10 ? 1 : 2)} ${unit}`
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return 'unknown duration'
+  const totalSeconds = Math.round(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`
+}
+
+function describeRecording(recording) {
+  if (!recording) return 'No local audio file was created.'
+  if (recording.error) return `Local audio issue: ${recording.error}`
+  return `Local audio saved: ${recording.fileName} • ${formatBytes(recording.sizeBytes)} • ${formatDuration(recording.durationMs)}`
+}
+
 function savePrefs() {
   chrome.storage.local.set({
     meetiq_url: $('meetiq-url').value.trim(),
@@ -147,7 +174,7 @@ async function init() {
 
       setRecordingUI(false)
       $('lines').style.display = 'block'
-      $('lines').textContent = `${finalTranscript.length} lines captured`
+      $('lines').textContent = `${finalTranscript.length} lines captured\n${describeRecording(resp.recording)}`
 
       if (!finalTranscript.length) {
         showError('No speech captured. Make sure your microphone is working.')

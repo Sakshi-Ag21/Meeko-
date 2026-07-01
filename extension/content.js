@@ -10,6 +10,10 @@ let mediaStream = null
 let deepgramSocket = null
 let audioContext = null
 let scriptProcessor = null
+let mediaRecorder = null
+let audioChunks = []
+let recordingStartedAt = null
+let localRecordingMeta = null
 
 // ── Speaker detection (used to map diarization indices → real names) ──────────
 const SPEAKER_SELECTORS = [
@@ -156,6 +160,99 @@ function startDeepgram(stream, apiKey) {
   }
 }
 
+function getSupportedAudioMimeType() {
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+  ]
+  return types.find(type => MediaRecorder.isTypeSupported(type)) || ''
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  a.style.display = 'none'
+  document.documentElement.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+function startLocalRecording(stream) {
+  if (!window.MediaRecorder) {
+    localRecordingMeta = { error: 'MediaRecorder is not supported in this browser.' }
+    return
+  }
+
+  audioChunks = []
+  localRecordingMeta = null
+  recordingStartedAt = Date.now()
+
+  const mimeType = getSupportedAudioMimeType()
+  mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data?.size > 0) audioChunks.push(event.data)
+  }
+
+  mediaRecorder.onerror = (event) => {
+    localRecordingMeta = { error: event.error?.message || 'Local recording failed.' }
+  }
+
+  mediaRecorder.start(10_000)
+}
+
+function stopLocalRecording() {
+  return new Promise((resolve) => {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+      resolve(localRecordingMeta)
+      return
+    }
+
+    mediaRecorder.onstop = () => {
+      const durationMs = recordingStartedAt ? Date.now() - recordingStartedAt : 0
+      const mimeType = mediaRecorder.mimeType || getSupportedAudioMimeType() || 'audio/webm'
+      const blob = new Blob(audioChunks, { type: mimeType })
+      const extension = mimeType.includes('mp4') ? 'm4a' : 'webm'
+      const fileName = `meetiq-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`
+
+      if (blob.size > 0) {
+        downloadBlob(blob, fileName)
+        localRecordingMeta = {
+          fileName,
+          mimeType,
+          sizeBytes: blob.size,
+          durationMs,
+        }
+      } else {
+        localRecordingMeta = {
+          fileName,
+          mimeType,
+          sizeBytes: 0,
+          durationMs,
+          error: 'Local recording file was empty.',
+        }
+      }
+
+      mediaRecorder = null
+      audioChunks = []
+      recordingStartedAt = null
+      resolve(localRecordingMeta)
+    }
+
+    try {
+      mediaRecorder.requestData()
+      mediaRecorder.stop()
+    } catch (err) {
+      localRecordingMeta = { error: err.message || 'Could not stop local recording.' }
+      resolve(localRecordingMeta)
+    }
+  })
+}
+
 function stopDeepgram() {
   isRecording = false
   if (deepgramSocket) {
@@ -197,6 +294,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return
       }
       mediaStream = stream
+      startLocalRecording(stream)
       startDeepgram(stream, msg.deepgramKey)
       sendResponse({ ok: true })
     })
@@ -204,13 +302,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'STOP_RECORDING') {
-    stopDeepgram()
-    speakerObserver?.disconnect()
-    speakerObserver = null
-    mediaStream?.getTracks().forEach(t => t.stop())
-    mediaStream = null
-    chrome.storage.local.set({ meetiq_recording: false })
-    sendResponse({ ok: true, transcript })
+    stopLocalRecording().then((recording) => {
+      stopDeepgram()
+      speakerObserver?.disconnect()
+      speakerObserver = null
+      mediaStream?.getTracks().forEach(t => t.stop())
+      mediaStream = null
+      chrome.storage.local.set({ meetiq_recording: false })
+      sendResponse({ ok: true, transcript, recording })
+    })
     return true
   }
 
