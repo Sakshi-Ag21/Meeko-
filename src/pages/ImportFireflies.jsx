@@ -117,6 +117,19 @@ export function ImportFireflies() {
         return true
       })
 
+      // 2b. Deduplicate within Fireflies results by Fireflies ID, then by title+date
+      const seenFirefliesIds = new Set()
+      const seenTitleDate = new Set()
+      const dedupedFireflies = filtered.filter(m => {
+        if (seenFirefliesIds.has(m.id)) return false
+        seenFirefliesIds.add(m.id)
+        const date = m.date ? new Date(m.date).toISOString().slice(0, 10) : ''
+        const key = `${m.title}||${date}`
+        if (seenTitleDate.has(key)) return false
+        seenTitleDate.add(key)
+        return true
+      })
+
       // 3. Fetch all existing title+date pairs for dedup (no 200-row limit)
       setPhase('Checking for existing meetings…')
       const existingRes = await apiFetch('/meeting-keys')
@@ -125,13 +138,14 @@ export function ImportFireflies() {
         Array.isArray(existing) ? existing.map(m => `${m.title}||${m.date}`) : []
       )
 
-      const toImport = filtered.filter(m => {
+      const toImport = dedupedFireflies.filter(m => {
         const date = m.date ? new Date(m.date).toISOString().slice(0, 10) : ''
         return !existingKeys.has(`${m.title}||${date}`)
       })
 
       setProgress({ current: 0, total: toImport.length })
-      setPhase(`${filtered.length} meetings in range · ${toImport.length} new to import`)
+      const dupsInFireflies = filtered.length - dedupedFireflies.length
+      setPhase(`${filtered.length} meetings in range · ${dupsInFireflies > 0 ? `${dupsInFireflies} Fireflies duplicates removed · ` : ''}${toImport.length} new to import`)
 
       if (!toImport.length) {
         setPhase('All meetings already imported — nothing to do.')
