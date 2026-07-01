@@ -146,9 +146,9 @@ export function AskAI() {
 
   // Load meetings and sessions on mount
   useEffect(() => {
-    apiFetch('/meetings')
+    apiFetch('/meeting-keys')
       .then(r => r.json())
-      .then(data => { setMeetings(data); setSelectedIds(new Set(data.map(m => m.id))) })
+      .then(data => { setMeetings(Array.isArray(data) ? data : []); setSelectedIds(new Set((Array.isArray(data) ? data : []).map(m => m.id))) })
       .catch(() => {})
       .finally(() => setLoadingMeetings(false))
 
@@ -206,7 +206,8 @@ export function AskAI() {
       // Call AI
       const res = await apiFetch('/ask-ai', {
         method: 'POST',
-        body: JSON.stringify({ question: q, meeting_ids: [...selectedIds], history: messages.slice(-8) }),
+        // Send empty array when all meetings selected — server fetches all from DB directly
+        body: JSON.stringify({ question: q, meeting_ids: selectedIds.size === meetings.length ? [] : [...selectedIds], history: messages.slice(-8) }),
       })
       let data
       try { data = await res.json() } catch {

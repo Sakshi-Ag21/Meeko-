@@ -379,7 +379,7 @@ app.get('/stats', requireAuth, requireTeam, async (req, res) => {
 // Lightweight endpoint for dedup — returns all title+date pairs, no limit
 app.get('/meeting-keys', requireAuth, requireTeam, async (req, res) => {
   const rows = await pool.query(
-    'SELECT title, date FROM meetings WHERE team_id = $1',
+    'SELECT id, title, date FROM meetings WHERE team_id = $1 ORDER BY date DESC',
     [req.teamId]
   )
   res.json(rows.rows)
