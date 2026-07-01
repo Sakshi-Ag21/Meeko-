@@ -599,16 +599,32 @@ app.post('/ask-ai', requireAuth, requireTeam, async (req, res) => {
 
   if (rows.length === 0) return res.status(400).json({ error: 'No meetings selected.' })
 
-  // Build context for ALL meetings, but budget chars per meeting so total stays under 110k
-  const TOTAL_BUDGET = 110000
-  const perMeetingBudget = Math.max(300, Math.floor(TOTAL_BUDGET / rows.length))
+  // Extract keywords from question to prioritize relevant meetings
+  const qWords = question.toLowerCase().split(/\W+/).filter(w => w.length > 2)
+  const score = m => {
+    const hay = (m.title + ' ' + JSON.parse(m.speakers).join(' ')).toLowerCase()
+    return qWords.filter(w => hay.includes(w)).length
+  }
 
-  let context = rows.map(m => {
+  // Split into matched (any keyword hit) and rest, keep date order within each group
+  const matched = rows.filter(m => score(m) > 0)
+  const rest    = rows.filter(m => score(m) === 0)
+
+  function buildEntry(m, budget) {
     const pwLines = Object.entries(JSON.parse(m.person_wise)).map(([n, items]) => `  ${n}: ${items.join('; ')}`).join('\n')
     const base = `=== "${m.title}" (${m.date}) ===\nParticipants: ${JSON.parse(m.speakers).join(', ')}\nSummary: ${JSON.parse(m.summary).join(' | ') || 'N/A'}\nDecisions: ${JSON.parse(m.decisions).join(' | ') || 'N/A'}\nAction Items: ${JSON.parse(m.action_items).join(' | ') || 'N/A'}\nPain Points: ${JSON.parse(m.pain_points || '[]').join(' | ') || 'N/A'}\nPerson-wise:\n${pwLines || '  (none)'}`
     const full = includeTranscript ? `${base}\nFull Transcript:\n${m.transcript}` : base
-    return full.length > perMeetingBudget ? full.slice(0, perMeetingBudget) + '…' : full
-  }).join('\n\n')
+    return budget && full.length > budget ? full.slice(0, budget) + '…' : full
+  }
+
+  const TOTAL_BUDGET = 110000
+  // Matched meetings get full content (up to 2000 chars each), rest share remaining budget
+  const matchedContent = matched.map(m => buildEntry(m, 2000)).join('\n\n')
+  const remaining = Math.max(0, TOTAL_BUDGET - matchedContent.length)
+  const perRest = rest.length > 0 ? Math.max(150, Math.floor(remaining / rest.length)) : 0
+  const restContent = rest.map(m => buildEntry(m, perRest)).join('\n\n')
+
+  let context = [matchedContent, restContent].filter(Boolean).join('\n\n')
 
   const historyText = history.length > 0 ? '\n\nPrior conversation:\n' + history.map(h => `${h.role === 'user' ? 'Q' : 'A'}: ${h.content}`).join('\n') : ''
 
